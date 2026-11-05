@@ -1,6 +1,6 @@
 # Prior-Space Reparameterization for Physically Based Inverse Rendering
 
-Code for *Integrating Learned Priors through Prior-Space Reparameterization for Physically Based Inverse Rendering*.
+Code for *Integrating Learned Priors through **P**rior-Space **Rep**arameterization for Physically Based **I**nverse **R**endering*.
 Recovers geometry, PBR materials and illumination from multi-view images using MVInverse or DiffusionRenderer priors
 and a photometric objective.
 
