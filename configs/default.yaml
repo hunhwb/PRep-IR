@@ -1,0 +1,62 @@
+# The paper's method: one prior-space lattice at h = sigma_prior with material Large Steps (lambda 20), mesh Large
+# Steps geometry, and Neural-PBIR's spherical Gaussian -> Large Steps texture environment. 1000 joint steps.
+# Section/key names are referenced by experiment files (configs/experiments/) and by --set overrides.
+
+steps: 1000
+views_per_step: 2          # training views rendered per step
+resolution: 800            # training image width in pixels (height follows the aspect ratio)
+seed: 20260916             # view sampling and render seeds
+
+render:
+  max_depth: 4
+  spp: 32                  # primal samples per pixel
+  spp_interior: 32         # derivative samples, continuous (interior) term
+  spp_primary_edge: 8      # derivative samples, primary-visibility boundary term
+  spp_indirect_edge: 8     # derivative samples, indirect-visibility boundary term
+  bsdf_cos_floor: 1.0e-6   # grazing-angle floor of the BSDF derivative (prep_ir.mitsuba_patches)
+
+loss:
+  ssim_weight: 0.2         # object: (1 - w) L1 + w (1 - SSIM) in sRGB
+  background_weight: 1.0   # sRGB L1 between the envmap and observed background pixels (used when the data has them)
+  background_samples: 65536
+  background_stride: 4     # background pixel grid stride
+  prior_weight: 0.0        # control only: DiffReg-PBIR-style bilateral prior loss on vertex materials
+
+material:
+  parameterization: lattice   # lattice (ours) | vertex (control: free per-vertex materials)
+  lattice_spacing: 1.0        # h = lattice_spacing * sigma_prior
+  large_steps: 20.0           # lambda of B = I + lambda L / mean degree on the lattice graph (0: no preconditioning)
+  init_albedo: 0.3
+  init_roughness: 0.6
+  lr_albedo: 0.025            # Adam rates, shared by lattice variables and unsupported per-vertex offsets
+  lr_roughness: 0.075
+  clip_quantile: 0.99         # clip per-vertex gradient norms at this quantile of the nonzero norms
+  learn_metallic: false       # supplementary variant: metallic on the same lattice, at the roughness rate
+  init_metallic: 0.2
+
+geometry:
+  large_steps: 19.0           # lambda of B = I + lambda L on the mesh graph
+  lr: 6.0e-4                  # UniformAdam
+  clip_quantile: 0.99
+
+envmap:
+  height: 64
+  width: 128
+  init: 0.5                   # constant initial radiance
+  sg_lobes: 128
+  sg_steps: 250               # spherical Gaussians up to this step, then the Large Steps texture
+  large_steps: 6.0            # lambda of the texture phase (sphere-grid Laplacian / mean degree)
+  lr: 0.04                    # Adam
+  warmup: 10                  # linear warm-up steps
+  min_lr_factor: 0.02         # cosine decay to this fraction of lr
+  grad_clip: 0.1              # gradient-norm clip
+
+# Exponential learning-rate schedule: the rate starts at `factor x` its base value and decays to the base value at
+# the last step (1 = constant). Used by the 200-step schedule (configs/experiments/fast200.yaml).
+lr_decay:
+  albedo: 1.0
+  roughness: 1.0              # metallic follows roughness
+  geometry: 1.0
+  envmap: 1.0
+
+checkpoint_steps: []          # extra steps to save a checkpoint at (the final state is always saved)

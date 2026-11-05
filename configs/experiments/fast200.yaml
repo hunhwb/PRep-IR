@@ -1,0 +1,15 @@
+# Optimization speedup (Sec. 6.2, Tab. "Optimization in a minute"): 200 steps with one training view per step and
+# 256 primal samples per pixel. Albedo, geometry and envmap rates start at 10x their defaults and decay exponentially
+# to 1x; roughness stays at 1x. The envmap switches from spherical Gaussians to the texture at step 100.
+steps: 200
+views_per_step: 1
+render:
+  spp: 256
+envmap:
+  sg_steps: 100
+  warmup: 0
+  min_lr_factor: 1.0
+lr_decay:
+  albedo: 10.0
+  geometry: 10.0
+  envmap: 10.0

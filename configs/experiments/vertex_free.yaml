@@ -1,0 +1,3 @@
+# Prior-use control (Tab. "How the prior enters the material optimization"): free per-vertex materials, no prior.
+material:
+  parameterization: vertex

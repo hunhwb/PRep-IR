@@ -1,0 +1,71 @@
+# The environment of every pipeline step except DiffusionRenderer inference (envs/cosmos-predict1): MVInverse, dataset
+# conversion, DiffReg-PBIR's surface reconstruction, scene preparation, joint optimization and all evaluations
+# (Python 3.11, CUDA 12.8). Mitsuba is pinned because prep_ir/mitsuba_patches.py patches its 3.9.1 sources. The CUDA
+# extensions DiffReg-PBIR builds from source (pytorch3d, tiny-cuda-nn, mmcv 1.7.0, its neural_surface_recon kernels
+# and Mitsuba fork) are compiled into this environment by scripts/setup_environment.sh with the toolchain below.
+#   pixi install && pixi run test
+[workspace]
+name = "prep-ir"
+channels = ["https://conda.anaconda.org/nvidia/label/cuda-12.8.1", "conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+python = "3.11.*"
+pip = "*"
+setuptools = "<80"           # mmcv 1.7.0's setup.py imports pkg_resources
+wheel = "*"
+cmake = "==3.31.8"
+ninja = "*"
+cuda-version = "12.8.*"
+cuda-nvcc = "12.8.*"
+cuda-cccl = "12.8.*"
+cuda-cudart-dev = "12.8.*"
+cuda-libraries-dev = "12.8.1.*"
+cuda-nvrtc-dev = "12.8.*"
+gcc_linux-64 = "11.*"
+gxx_linux-64 = "11.*"
+zlib = "*"
+lapack = "*"
+
+[pypi-dependencies]
+torch = { version = "==2.11.0", index = "https://download.pytorch.org/whl/cu128" }
+torchvision = { version = "==0.26.0", index = "https://download.pytorch.org/whl/cu128" }
+mitsuba = "==3.9.1"
+drjit = "==1.5.0"
+cholespy = "==2.2.0"
+numpy = "==1.26.4"
+scipy = "==1.17.1"
+trimesh = "==4.6.8"
+pillow = "==12.3.0"
+opencv-python-headless = "==4.11.0.86"
+pyyaml = "*"
+huggingface_hub = "*"
+safetensors = "*"
+pytest = "*"
+# DiffReg-PBIR: surface reconstruction, G-buffer staging, Stanford-ORB / DTC evaluation scripts
+fvcore = "==0.1.5.post20221221"
+iopath = "==0.1.10"
+tqdm = "==4.70.1"
+imageio = "==2.37.4"
+imageio-ffmpeg = "==0.6.0"
+scikit-image = "==0.25.2"
+matplotlib = "==3.10.9"
+yapf = "==0.40.1"            # mmcv 1.7.0 Config.dump() calls yapf FormatCode(..., verify=True)
+PyMCubes = "==0.1.6"
+gpytoolbox = "==0.3.3"
+pyexr = "==0.5.0"
+OpenEXR = "==3.4.15"
+torchmetrics = "==1.8.2"
+pandas = "==2.3.3"
+openpyxl = "==3.1.5"
+addict = "==2.4.0"
+tensorboard = "==2.20.0"
+omegaconf = "==2.3.0"
+gin-config = "==0.5.0"
+plyfile = "==0.7.4"
+# Stanford-ORB scoring
+lpips = "==0.1.4"
+kornia = "==0.7.3"
+
+[tasks]
+test = "python -m pytest -q tests"

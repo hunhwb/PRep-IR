@@ -1,0 +1,6 @@
+# Prior-use control: free per-vertex materials plus DiffReg-PBIR's joint-bilateral prior loss, adapted to vertices
+# (prep_ir/prior_loss.py), at weight 1.
+material:
+  parameterization: vertex
+loss:
+  prior_weight: 1.0

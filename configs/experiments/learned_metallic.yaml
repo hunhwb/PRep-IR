@@ -1,0 +1,5 @@
+# Supplementary variant (Sec. "Learned Metallic Setting"): metallic is learned on the same lattice, from a uniform 0.2,
+# with the roughness learning rate and schedule. The main paper keeps metallic fixed at zero.
+material:
+  learn_metallic: true
+  init_metallic: 0.2

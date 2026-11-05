@@ -1,0 +1,4 @@
+# Supplementary ablation (Tab. "Effect of material Large Steps"): the same single lattice without the material Large
+# Steps preconditioner (lambda = 0, B = I). Geometry and envmap keep their Large Steps parameterizations.
+material:
+  large_steps: 0.0

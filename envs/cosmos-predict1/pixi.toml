@@ -1,0 +1,30 @@
+# DiffusionRenderer inference (the Cosmos inverse renderer as packaged by DiffReg-PBIR), used only to compute the
+# DiffusionRenderer prior: a pixi port of cosmos1-diffusion-renderer's cosmos-predict1.yaml (Python 3.10, CUDA 12.8,
+# torch 2.7.1). Its requirements.txt and TransformerEngine v1.12 are installed by scripts/setup_environment.sh cosmos.
+[workspace]
+name = "cosmos-predict1"
+channels = ["https://conda.anaconda.org/nvidia/label/cuda-12.8.1", "conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+python = "3.10.*"
+pip = "25.0.*"
+cmake = "*"
+ninja = "*"
+cuda-version = "12.8.*"
+cuda-nvcc = "12.8.*"
+cuda-cccl = "12.8.*"
+cuda-cudart-dev = "12.8.*"
+cuda-libraries-dev = "12.8.1.*"
+cuda-nvrtc-dev = "12.8.*"
+cuda-nvtx-dev = "12.8.*"
+gcc_linux-64 = "11.*"
+gxx_linux-64 = "11.*"
+
+[pypi-options]
+extra-index-urls = ["https://download.pytorch.org/whl/cu128"]
+index-strategy = "unsafe-best-match"
+
+[pypi-dependencies]
+torch = "==2.7.1"
+torchvision = "==0.22.1"
