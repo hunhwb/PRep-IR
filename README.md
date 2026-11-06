@@ -52,9 +52,8 @@ scripts/run_scene.sh s4r hotdog diffusion_renderer
 ```
 
 The script runs prediction, mesh reconstruction, prior fusion, optimization and evaluation, skipping completed steps.
-Albedo refinement is enabled by default: spatial sigma **12**, prior-colour sigma **0.2**, input-colour sigma **0.03**.
-Lattice spacing is estimated after refinement; material Large Steps uses **20**. Use `--no-refine-albedo` to disable
-refinement.
+Albedo refinement is enabled by default. 
+Use `--no-refine-albedo` to disable refinement. We recommend enabling it for better visual quality.
 
 Prepared scenes are saved as `work/<dataset>/<scene>/scene_<prior>_refined.pt`; results go to
 `outputs/<dataset>/<scene>/<prior>_refined/`. Results include `checkpoint.pt`, `result/result.npz`, `run.json` and
@@ -63,7 +62,7 @@ Prepared scenes are saved as `work/<dataset>/<scene>/scene_<prior>_refined.pt`; 
 Training settings live in `configs/default.yaml`; experiment files and `--set` provide overrides:
 
 ```bash
-scripts/run_scene.sh s4r hotdog mvinverse --config configs/experiments/fast200.yaml --set seed=20261916
+scripts/run_scene.sh s4r hotdog mvinverse --config configs/experiments/fast200.yaml --set seed=42
 ```
 
 | Experiment file | Change |
@@ -97,7 +96,7 @@ python scripts/evaluate.py outputs/s4r/hotdog/mvinverse_refined --view-stride 4
 
 | Dataset | Protocol |
 |---|---|
-| S4R / TensoIR | 200 test views by default; `--view-stride 4` scores 50. A scene-level RGB albedo scale uses all 200 views and is shared with relighting. |
+| S4R / TensoIR | 200 test views by default. set --view-stride > 1 for faster evaluation. --view-stride 4 is usually within 0.1 dB of the original numbers. |
 | Stanford-ORB | Official novel-view and novel-light evaluation via Blender and the ORB benchmark. |
 | DTC-Synthetic | Released DiffReg-PBIR protocol: 3 illuminations × 20 views, 1024 spp. |
 
