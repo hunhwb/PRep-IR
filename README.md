@@ -1,14 +1,12 @@
 # Prior-Space Reparameterization for Physically Based Inverse Rendering
 
 Code for *Integrating Learned Priors through **P**rior-Space **Rep**arameterization for Physically Based **I**nverse **R**endering*.
-Recovers geometry, PBR materials and illumination from multi-view images using MVInverse or DiffusionRenderer priors
-and a photometric objective.
+Recovers geometry, PBR materials and illumination from multi-view images using MVInverse or DiffusionRenderer priors and a photometric objective.
 
 ## Installation
 
-Requires Linux, an NVIDIA GPU and [pixi](https://pixi.sh). One environment (`pixi.toml`, locked in `pixi.lock`;
-Python 3.11, CUDA 12.8 PyTorch, Mitsuba 3.9.1) runs every step except DiffusionRenderer inference, including
-DiffReg-PBIR's surface reconstruction and the Stanford-ORB / DTC evaluations.
+Requires Linux, an NVIDIA GPU and [pixi](https://pixi.sh). 
+One environment (`pixi.toml`, locked in `pixi.lock`, Python 3.11, CUDA 12.8 PyTorch, Mitsuba 3.9.1) runs every step except DiffusionRenderer inference.
 
 ```bash
 bash scripts/setup_third_party.sh   # DiffReg-PBIR, MVInverse and Stanford-ORB at the commits the paper used
@@ -77,15 +75,11 @@ scripts/run_scene.sh s4r hotdog --config configs/experiments/dual_hypothesis.yam
 
 ### Dual hypothesis
 
-With `dual_hypothesis.yaml`, every vertex carries a dielectric hypothesis (metallic 0) and a metal hypothesis
-(metallic 1), each with its own base color and roughness on the same lattice. Each training view is rendered with the
-selected hypothesis of every vertex, which updates geometry, illumination and the selected fields, and with the
-unselected hypotheses, which updates only those fields. The per-pixel residuals of both renders are pooled to the
-lattice, smoothed with the material Large Steps operator, and compared; metal is selected where it explains the images
-better by a normalized margin of 0.02. The second render runs every step up to step 400 and every fourth step after,
-so a run takes about 1.3–1.4 times as long as the fixed-metallic setting. `result/result.npz` holds the selected binary
-material, and `result/dual.npz` both hypotheses and the selection evidence. Settings are in the `dual` section of
-`configs/default.yaml`.
+With `dual_hypothesis.yaml`, every vertex carries a dielectric hypothesis (metallic 0) and a metal hypothesis (metallic 1), each with its own base color and roughness on the same lattice. 
+Metal is selected where it explains the images better by a normalized margin of 0.02. 
+Using the dual hypothesis setting, a run takes about 1.3–1.4 times as long as the fixed-metallic setting. 
+`result/result.npz` holds the selected binary material, and `result/dual.npz` holds both hypotheses and the selection evidence. 
+Settings are in the `dual` section of `configs/default.yaml`.
 
 Individual pipeline steps are available under `scripts/`; use `--help` on the Python entry points.
 
@@ -118,8 +112,8 @@ python scripts/evaluate.py outputs/s4r/hotdog/diffusion_renderer_refined --view-
 
 ## Acknowledgements
 
-This codebase builds on the following wonderful works. We sincerely thank their authors for sharing their research,
-code, models and datasets with the community.
+This codebase builds on the following wonderful works. 
+We sincerely thank their authors for sharing their research, code, models and datasets with the community.
 
 - [DiffReg-PBIR](https://github.com/gerwang/DiffReg-PBIR) provides the surface reconstruction, prediction staging
   and Stanford-ORB / DTC evaluation pipelines we build on, as well as the prior loss used in our control experiment.
