@@ -47,8 +47,8 @@ Converted scenes go to `data/<dataset>/<scene>/`. For all 42 ORB captures, add `
 ## Running one scene
 
 ```bash
-scripts/run_scene.sh s4r hotdog mvinverse
-scripts/run_scene.sh s4r hotdog diffusion_renderer
+scripts/run_scene.sh s4r hotdog              # DiffusionRenderer prior (default, the main paper)
+scripts/run_scene.sh s4r hotdog mvinverse    # MVInverse prior (supplement)
 ```
 
 The script runs prediction, mesh reconstruction, prior fusion, optimization and evaluation, skipping completed steps.
@@ -62,36 +62,53 @@ Prepared scenes are saved as `work/<dataset>/<scene>/scene_<prior>_refined.pt`; 
 Training settings live in `configs/default.yaml`; experiment files and `--set` provide overrides:
 
 ```bash
-scripts/run_scene.sh s4r hotdog mvinverse --config configs/experiments/fast200.yaml --set seed=42
+scripts/run_scene.sh s4r hotdog --config configs/experiments/dual_hypothesis.yaml --set seed=42
 ```
 
 | Experiment file | Change |
 |---|---|
-| `fast200.yaml` | 200 optimization steps |
-| `no_material_ls.yaml` | Disable material Large Steps |
-| `learned_metallic.yaml` | Learn metallic, initialized at 0.2 |
 | `vertex_free.yaml` | Free per-vertex material control |
 | `vertex_prior_loss.yaml` | Per-vertex material control with a prior loss |
+| `learned_metallic.yaml` | Learn metallic, initialized at 0.2 |
+| `metallic_binarization_001.yaml`, `metallic_binarization_01.yaml` | Learned metallic plus a binarization loss (weight .01 / .1) |
+| `dual_hypothesis.yaml` | Dielectric–metallic dual hypothesis: binary metallic selected from photometric residuals |
+| `no_material_ls.yaml` | Disable material Large Steps |
+| `fixed_geometry.yaml` | Hold the reconstructed mesh fixed |
+| `fast200.yaml` | 200 optimization steps |
+
+### Dual hypothesis
+
+With `dual_hypothesis.yaml`, every vertex carries a dielectric hypothesis (metallic 0) and a metal hypothesis
+(metallic 1), each with its own base color and roughness on the same lattice. Each training view is rendered with the
+selected hypothesis of every vertex, which updates geometry, illumination and the selected fields, and with the
+unselected hypotheses, which updates only those fields. The per-pixel residuals of both renders are pooled to the
+lattice, smoothed with the material Large Steps operator, and compared; metal is selected where it explains the images
+better by a normalized margin of 0.02. The second render runs every step up to step 400 and every fourth step after,
+so a run takes about 1.3–1.4 times as long as the fixed-metallic setting. `result/result.npz` holds the selected binary
+material, and `result/dual.npz` both hypotheses and the selection evidence. Settings are in the `dual` section of
+`configs/default.yaml`.
 
 Individual pipeline steps are available under `scripts/`; use `--help` on the Python entry points.
 
 ## Reproducing the paper
 
 ```bash
-scripts/reproduce_paper.sh main orb dtc prior_use speedup
-scripts/reproduce_paper.sh material_ls metallic orb_full
-SEEDS="20260916 20261916 20262916" scripts/reproduce_paper.sh main
+scripts/reproduce_paper.sh main orb dtc prior_use                       # main paper (DiffusionRenderer)
+scripts/reproduce_paper.sh mvinverse metallic orb_full material_ls geometry refinement   # supplement
+SEEDS=20260916 scripts/reproduce_paper.sh main                          # a single seed
 python scripts/summarize.py
 ```
 
-All groups use default refinement and share initial meshes and priors across optimization seeds.
+Groups run the paper's three optimization seeds (20260916, 20261916, 20262916) unless `SEEDS` says otherwise; the
+header of `scripts/reproduce_paper.sh` maps each group to its table. All groups use the default refinement except
+`refinement`, and share initial meshes and priors across seeds and configurations.
 
 ## Evaluation
 
 ```bash
-python scripts/evaluate.py outputs/s4r/hotdog/mvinverse_refined
+python scripts/evaluate.py outputs/s4r/hotdog/diffusion_renderer_refined
 # Quick synthetic check:
-python scripts/evaluate.py outputs/s4r/hotdog/mvinverse_refined --view-stride 4
+python scripts/evaluate.py outputs/s4r/hotdog/diffusion_renderer_refined --view-stride 4
 ```
 
 | Dataset | Protocol |

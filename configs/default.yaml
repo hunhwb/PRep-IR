@@ -21,6 +21,9 @@ loss:
   background_samples: 65536
   background_stride: 4     # background pixel grid stride
   prior_weight: 0.0        # control only: DiffReg-PBIR-style bilateral prior loss on vertex materials
+  metallic_binarization: 0.0  # supplementary control (learn_metallic): weight of mean m (1 - m) over vertices
+  binarization_from: 300      # the binarization weight ramps in linearly between these steps
+  binarization_until: 600
 
 material:
   parameterization: lattice   # lattice (ours) | vertex (control: free per-vertex materials)
@@ -33,6 +36,23 @@ material:
   clip_quantile: 0.99         # clip per-vertex gradient norms at this quantile of the nonzero norms
   learn_metallic: false       # supplementary variant: metallic on the same lattice, at the roughness rate
   init_metallic: 0.2
+  dual_hypothesis: false      # supplementary variant: dielectric / metal hypotheses selected by residual (`dual`)
+
+# Dielectric-metallic dual hypothesis (material.dual_hypothesis, prep_ir/dual.py). Each vertex carries a dielectric
+# (metallic 0) and a metal (metallic 1) base colour and roughness on the material lattice, with the material rates.
+# Per view, render A uses each vertex's selected hypothesis and updates geometry, envmap and the selected fields;
+# render B uses the unselected hypotheses with geometry and envmap detached and updates only those fields.
+# B runs every step up to `freeze_after`, then every `every`-th step; residual sums grow only on steps with both renders.
+dual:
+  init_metal: 0.3             # initial metal base colour (the dielectric one uses material.init_albedo)
+  freeze_after: 400
+  every: 4
+  residual_decay: 0.98        # per-step decay of the residual and coverage sums
+  tau0: 0.3                   # selection temperature, geometric decay tau0 -> tau1
+  tau1: 0.01
+  margin: 0.02                # normalized residual advantage metal must exceed (dielectric is the default)
+  margin_from: 300            # the margin ramps in linearly between these steps
+  margin_until: 600
 
 geometry:
   large_steps: 19.0           # lambda of B = I + lambda L on the mesh graph

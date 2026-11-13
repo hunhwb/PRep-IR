@@ -8,6 +8,8 @@ all blocks from the same renderings:
     geometry   v = v0 + diag * (I + 19 L_mesh)^-1 u                       UniformAdam
     materials  Q = Q0 + S^T (I + 20 L_lattice / mean degree)^-1 W  (+ R)   Adam
     envmap     SG lobes for 250 steps, then log E0 + (I + 6 K / mean degree)^-1 w   Adam, warm-up + cosine
+
+With `material.dual_hypothesis` each step renders the selected and the unselected hypotheses instead (prep_ir/dual.py).
 """
 import json
 import math
@@ -20,8 +22,9 @@ from torch import nn
 
 from .config import as_plain
 from .data import Views
+from .dual import ramp, renders_both, select, temperature
 from .envmap import BackgroundObservations, SGEnvmap, TextureEnvmap
-from .image import write_exr
+from .image import linear_to_srgb, write_exr
 from .largesteps import SPDSolver, UniformAdam, inverse, laplacian, system
 from .losses import clip_vertex_norms, photometric_loss
 from .material import LatticeMaterial, PriorLattice, VertexMaterial, material_logits
@@ -29,7 +32,7 @@ from .mesh import unique_edges
 from .prior_loss import PriorBilateralLoss
 from .render import ENV_TO_WORLD, Renderer
 
-MATERIALS = ('albedo', 'roughness', 'metallic')
+MATERIALS = ('albedo', 'roughness', 'metallic', 'albedo_m', 'roughness_m')   # *_m: metal hypothesis
 
 
 def decay_factor(start, step, steps):
@@ -63,8 +66,12 @@ class Trainer:
         v0, faces = scene['vertices'].cuda(), scene['faces'].cuda()
         n = len(v0)
         r = c.render
+        # geometry.lr 0 holds the mesh fixed: no vertex gradients, so the boundary (edge) derivative terms, which only
+        # contribute to vertex gradients, are not sampled either
+        self.fixed_geometry = c.geometry.lr == 0
+        edges = (0, 0) if self.fixed_geometry else (r.spp_primary_edge, r.spp_indirect_edge)
         self.renderer = Renderer(v0, faces, envmap_shape=(c.envmap.height, c.envmap.width), max_depth=r.max_depth,
-                                 derivative_spp=(r.spp_interior, r.spp_primary_edge, r.spp_indirect_edge), cos_floor=r.bsdf_cos_floor)
+                                 derivative_spp=(r.spp_interior, *edges), cos_floor=r.bsdf_cos_floor)
 
         # geometry: mesh Large Steps on world-space displacements, scaled by the bounding-box diagonal
         self.v0 = v0
@@ -91,6 +98,22 @@ class Trainer:
                   dict(params=[self.roughness.u], name='roughness', lr=m.lr_roughness)]
         if self.metallic is not None:
             groups.append(dict(params=[self.metallic.u], name='metallic', lr=m.lr_roughness))
+        # dual hypothesis: albedo / roughness are the dielectric hypothesis, albedo_m / roughness_m the metal one
+        self.dual = bool(m.dual_hypothesis)
+        self.albedo_m = self.roughness_m = None
+        if self.dual:
+            if m.learn_metallic or c.loss.prior_weight > 0:
+                raise ValueError('material.dual_hypothesis excludes learn_metallic and the prior loss')
+            self.albedo_m = field(material_logits(c.dual.init_metal, 0., 1., n, 3))
+            self.roughness_m = field(material_logits(m.init_roughness, .09, .99, n, 1))
+            groups += [dict(params=[self.albedo_m.u], name='albedo_m', lr=m.lr_albedo),
+                       dict(params=[self.roughness_m.u], name='roughness_m', lr=m.lr_roughness)]
+            self.residual = torch.zeros((n, 2), device='cuda')      # decayed per-vertex residual sums (dielectric, metal)
+            self.coverage = torch.zeros((n, 2), device='cuda')      # decayed per-vertex pixel weights
+            self.observed = torch.zeros((n, 2), dtype=torch.bool, device='cuda')
+            self.selection = torch.full((n, 1), .5, device='cuda')  # metal weight w per vertex; metal where w > 1/2
+            self.slice_weight = None if self.lattice is None else \
+                torch.sparse.mm(self.lattice.ST, torch.ones((self.lattice.cells, 1), device='cuda')).clamp_min(1e-12)
         self.material_optimizer = torch.optim.Adam(groups)
         self.prior_loss = PriorBilateralLoss(scene['prior'], scene['vertices'], scene['faces']) if c.loss.prior_weight > 0 else None
 
@@ -105,6 +128,8 @@ class Trainer:
 
     # ----------------------------------------------------------------------------------------------- state
     def vertices(self):
+        if self.fixed_geometry:
+            return self.v0
         return self.v0 + inverse(self.geometry_u, self.geometry_solver) * self.diagonal
 
     def decoded(self):
@@ -112,6 +137,8 @@ class Trainer:
         state = dict(geometry=self.vertices(), albedo=self.albedo(), roughness=self.roughness(), envmap=self.envmap())
         if self.metallic is not None:
             state['metallic'] = self.metallic()
+        if self.dual:
+            state['albedo_m'], state['roughness_m'] = self.albedo_m(), self.roughness_m()
         return state
 
     @staticmethod
@@ -124,8 +151,9 @@ class Trainer:
         c = self.config
         d = lambda name: decay_factor(float(c.lr_decay[name]), step, c.steps)
         for g in self.material_optimizer.param_groups:
-            base = c.material.lr_albedo if g['name'] == 'albedo' else c.material.lr_roughness
-            g['lr'] = base * d('albedo' if g['name'] == 'albedo' else 'roughness')
+            colour = g['name'] in ('albedo', 'albedo_m')
+            base = c.material.lr_albedo if colour else c.material.lr_roughness
+            g['lr'] = base * d('albedo' if colour else 'roughness')
         self.geometry_optimizer.param_groups[0]['lr'] = c.geometry.lr * d('geometry')
         e = c.envmap
         progress = min(1., max(0, step - e.warmup) / max(1, c.steps - e.warmup))
@@ -147,9 +175,11 @@ class Trainer:
         indices = np.random.default_rng(c.seed + step).choice(len(self.views), c.views_per_step, replace=False).tolist()
 
         decoded = self.decoded()
-        leaves = {k: x.detach().requires_grad_(True) for k, x in decoded.items()}
-        losses, fractions = [], []
-        for j, index in enumerate(indices):
+        leaves = {k: x.detach().requires_grad_(not (k == 'geometry' and self.fixed_geometry)) for k, x in decoded.items()}
+        losses, fractions, extra = [], [], {}
+        if self.dual:
+            losses, fractions, extra = self._dual_step(leaves, indices, step)
+        for j, index in enumerate([] if self.dual else indices):
             v, a, r, metallic, e = self.physical(leaves)   # a fresh activation graph per view (freed by its backward)
             image = self.renderer.render(v, a, r, e, self.views, index, spp=c.render.spp, seed=c.seed + step * 1000 + j, metallic=metallic)
             batch = self.views.batch(index)
@@ -160,6 +190,11 @@ class Trainer:
         if self.prior_loss is not None:
             prior = self.prior_loss(leaves['albedo'].sigmoid(), .09 + .9 * leaves['roughness'].sigmoid(), float(np.mean(fractions)))
             (c.loss.prior_weight * prior).backward()
+        if self.metallic is not None and c.loss.metallic_binarization > 0:
+            weight = c.loss.metallic_binarization * ramp(step, c.loss.binarization_from, c.loss.binarization_until)
+            m = leaves['metallic'].sigmoid().clamp(1e-6, 1 - 1e-6)
+            if weight > 0:
+                (weight * (m * (1 - m)).mean()).backward()
         background = None
         if self.background is not None and c.loss.background_weight > 0:
             background = self.background.loss(leaves['envmap'], ENV_TO_WORLD, c.loss.background_samples, c.seed + step)
@@ -167,6 +202,8 @@ class Trainer:
 
         # clip per-vertex gradients, then pull them back through each parameterization
         for name, x in decoded.items():
+            if name == 'geometry' and self.fixed_geometry:
+                continue
             g = leaves[name].grad
             if g is None or not torch.isfinite(g).all():
                 raise FloatingPointError(f'{name}: missing or nonfinite gradient at step {step}')
@@ -175,7 +212,8 @@ class Trainer:
             elif name in MATERIALS:
                 g = clip_vertex_norms(g, c.material.clip_quantile, nonzero_only=True)
             x.backward(g)
-        self.geometry_optimizer.step()
+        if not self.fixed_geometry:
+            self.geometry_optimizer.step()
         self.material_optimizer.step()
         if c.envmap.grad_clip > 0:
             torch.nn.utils.clip_grad_norm_([p for p in self.envmap.parameters() if p.grad is not None], c.envmap.grad_clip)
@@ -185,10 +223,81 @@ class Trainer:
             raise FloatingPointError(f'nonfinite parameters after step {step}')
         self.step = step
         return dict(step=step, views=indices, loss=float(np.mean(losses)), background=None if background is None else float(background.detach()),
-                    seconds=time.perf_counter() - start)
+                    seconds=time.perf_counter() - start, **extra)
+
+    # ----------------------------------------------------------------------------------------------- dual hypothesis
+    def _dual_step(self, leaves, indices, step):
+        """Renders of one dual-hypothesis step. Per view, A renders each vertex's selected hypothesis (gradients to
+        geometry, envmap and the selected fields; torch.where routes each vertex's gradient to its hypothesis), and on
+        `renders_both` steps B renders the unselected ones with geometry and envmap detached. On those steps the
+        per-pixel sRGB residuals of A and B are pooled to the vertices of the primary hits and the selection is updated."""
+        c, d = self.config, self.config.dual
+        self.residual *= d.residual_decay
+        self.coverage *= d.residual_decay
+        both = renders_both(d, step)
+        losses, fractions, unselected = [], [], []
+        k, n = len(indices), len(self.residual)
+        for j, index in enumerate(indices):
+            batch = self.views.batch(index)
+            fractions.append(float(batch['mask'].mean()))
+            seed = c.seed + step * 1000 + j
+            metal = self.selection > .5
+            hypotheses = lambda: (leaves['albedo'].sigmoid(), .09 + .9 * leaves['roughness'].sigmoid(),
+                                  leaves['albedo_m'].sigmoid(), .09 + .9 * leaves['roughness_m'].sigmoid())
+            residual_of = lambda image: (linear_to_srgb(image.detach()) - batch['rgb']).abs().mean(-1).reshape(-1)
+            v, e = leaves['geometry'], leaves['envmap'].exp()
+            aD, rD, aM, rM = hypotheses()
+            image = self.renderer.render(v, torch.where(metal, aM, aD), torch.where(metal, rM, rD), e, self.views, index,
+                                         spp=c.render.spp, seed=seed, metallic=metal.float())
+            loss = photometric_loss(image, batch['rgb'], c.loss.ssim_weight)
+            (loss / k).backward()
+            losses.append(float(loss.detach()))
+            if not both:
+                continue
+            selected = residual_of(image)
+            aD, rD, aM, rM = hypotheses()   # fresh activations: A's graph is freed
+            image = self.renderer.render(v.detach(), torch.where(metal, aD, aM), torch.where(metal, rD, rM), e.detach(),
+                                         self.views, index, spp=c.render.spp, seed=seed, metallic=(~metal).float())
+            loss = photometric_loss(image, batch['rgb'], c.loss.ssim_weight)
+            (loss / k).backward()
+            unselected.append(float(loss.detach()))
+            other = residual_of(image)
+
+            valid, tri, bary = self.renderer.pixel_hits(self.views, index)
+            weight = (bary * (valid & (batch['mask'].reshape(-1) > .5))[:, None].float()).reshape(-1)
+            ids = tri.reshape(-1)
+            pool = lambda r_pix: torch.zeros(n, device='cuda').index_add_(0, ids, weight * r_pix.repeat_interleave(3))
+            cov = torch.zeros(n, device='cuda').index_add_(0, ids, weight)
+            seen, w = cov > 0, metal[:, 0]
+            for r_pix, as_metal in ((pool(selected), w), (pool(other), ~w)):   # column 1: metal, column 0: dielectric
+                self.residual[:, 1] += torch.where(as_metal, r_pix, 0.)
+                self.residual[:, 0] += torch.where(as_metal, 0., r_pix)
+                self.coverage[:, 1] += torch.where(as_metal, cov, 0.)
+                self.coverage[:, 0] += torch.where(as_metal, 0., cov)
+                self.observed[:, 1] |= seen & as_metal
+                self.observed[:, 0] |= seen & ~as_metal
+        if both:
+            with torch.no_grad():
+                self.selection = select(self.residual, self.coverage, self.observed, temperature(d, step, c.steps),
+                                        d.margin * ramp(step, d.margin_from, d.margin_until), self.lattice,
+                                        None if self.lattice is None else self.lattice.solver, self.slice_weight)
+        return losses, fractions, dict(both_rendered=both, loss_unselected=float(np.mean(unselected)) if unselected else None,
+                                       metal_fraction=float((self.selection > .5).float().mean()))
+
+    @torch.no_grad()
+    def dual_export(self):
+        """The selected (binary) material and both hypotheses with the selection evidence."""
+        state = self.decoded()
+        aD, rD = state['albedo'].sigmoid(), .09 + .9 * state['roughness'].sigmoid()
+        aM, rM = state['albedo_m'].sigmoid(), .09 + .9 * state['roughness_m'].sigmoid()
+        m = (self.selection > .5).float()
+        return dict(albedo=(1 - m) * aD + m * aM, roughness=(1 - m) * rD + m * rM, metallic=m,
+                    albedo_dielectric=aD, roughness_dielectric=rD, albedo_metal=aM, roughness_metal=rM,
+                    selection=self.selection, residual=self.residual / self.coverage.clamp_min(1e-30), coverage=self.coverage,
+                    observed=self.observed)
 
     def parameters(self):
-        fields = [self.albedo, self.roughness] + ([self.metallic] if self.metallic is not None else [])
+        fields = [f for f in (self.albedo, self.roughness, self.metallic, self.albedo_m, self.roughness_m) if f is not None]
         return [self.geometry_u] + [f.u for f in fields] + list(self.envmap.parameters())
 
     # ----------------------------------------------------------------------------------------------- loop and outputs
@@ -203,7 +312,8 @@ class Trainer:
                 f.write(json.dumps(row) + '\n')
                 f.flush()
                 if step == 1 or step % 50 == 0:
-                    self.log(f'step {step}/{c.steps}  loss {row["loss"]:.5f}  {total:.1f} s')
+                    metal = f'  metal {row["metal_fraction"]:.3f}' if self.dual else ''
+                    self.log(f'step {step}/{c.steps}  loss {row["loss"]:.5f}{metal}  {total:.1f} s')
                 if step in keep:
                     self.save_checkpoint(self.out / f'checkpoint_{step:04d}.pt')
         self.save_checkpoint(self.out / 'checkpoint.pt')
@@ -219,6 +329,10 @@ class Trainer:
         v, a, r, metallic, e = self.physical(self.decoded())
         if metallic is None:
             metallic = torch.zeros_like(r)
+        if self.dual:   # the selected binary material; both hypotheses go to dual.npz
+            dual = self.dual_export()
+            a, r, metallic = dual['albedo'], dual['roughness'], dual['metallic']
+            np.savez(out / 'dual.npz', **{k: x.detach().cpu().numpy() for k, x in dual.items()})
         arrays = dict(vertices=v, faces=self.renderer.faces, albedo=a, roughness=r, metallic=metallic, envmap=e)
         np.savez(out / 'result.npz', step=self.step, **{k: x.detach().cpu().numpy() for k, x in arrays.items()})
         write_exr(out / 'envmap.exr', e.cpu().numpy())
@@ -228,6 +342,7 @@ class Trainer:
         fields = {k: getattr(self, k).u.detach().cpu() for k in MATERIALS if getattr(self, k) is not None}
         state = dict(step=self.step, config=as_plain(self.config), geometry_u=self.geometry_u.detach().cpu(), materials=fields,
                      envmap_kind=envmap_kind, envmap={k: x.detach().cpu() for k, x in self.envmap.state_dict().items()},
+                     dual={k: getattr(self, k).cpu() for k in ('residual', 'coverage', 'observed', 'selection')} if self.dual else None,
                      optimizers=dict(geometry=self.geometry_optimizer.state_dict(), material=self.material_optimizer.state_dict(),
                                      envmap=self.envmap_optimizer.state_dict()))
         tmp = Path(path).with_suffix('.tmp')
@@ -240,6 +355,9 @@ class Trainer:
             self.geometry_u.copy_(state['geometry_u'])
             for k, u in state['materials'].items():
                 getattr(self, k).u.copy_(u)
+            if self.dual:
+                for k, x in state['dual'].items():
+                    setattr(self, k, x.cuda())
         if state['envmap_kind'] == 'texture':
             self.envmap = TextureEnvmap(state['envmap']['reference'], self.config.envmap.large_steps)
             self.envmap_optimizer = torch.optim.Adam(self.envmap.parameters(), lr=self.config.envmap.lr, betas=(.9, .99))

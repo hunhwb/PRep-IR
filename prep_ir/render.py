@@ -204,3 +204,19 @@ class Renderer:
         """(valid, t) of rays against the mesh at its current vertex positions."""
         hit = self.scene.ray_intersect(mi.Ray3f(mi.Point3f(origins), mi.Vector3f(directions)))
         return hit.is_valid().torch(), hit.t.torch()
+
+    @torch.no_grad()
+    def pixel_hits(self, views, index):
+        """Primary hits of the pixel-centre rays of view `index` against the mesh as loaded by the last render():
+        (valid (H*W,), triangle vertex ids (H*W, 3), barycentric weights (H*W, 3)) in row-major pixel order."""
+        sensor = self.sensor(views, index)
+        w, h = views.size
+        yy, xx = torch.meshgrid(torch.arange(h, device='cuda'), torch.arange(w, device='cuda'), indexing='ij')
+        uv = (torch.stack((xx, yy), -1).reshape(-1, 2) + .5) / torch.tensor([w, h], device='cuda', dtype=torch.float32)
+        ray, _ = sensor.sample_ray(0., 0., mi.Point2f(mi.Float(uv[:, 0]), mi.Float(uv[:, 1])), mi.Point2f(.5))
+        si = self.scene.ray_intersect(ray)
+        valid = si.is_valid().torch().bool()
+        idx = torch.where(valid, si.prim_index.torch().long(), 0)
+        hit_uv = si.uv.torch().T
+        weight = torch.stack((1 - hit_uv[:, 0] - hit_uv[:, 1], hit_uv[:, 0], hit_uv[:, 1]), 1)
+        return valid, self.faces[idx], torch.where(valid[:, None], weight, 0.)

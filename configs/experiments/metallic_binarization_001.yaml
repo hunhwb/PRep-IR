@@ -1,0 +1,7 @@
+# Supplementary control (Sec. "Binarization Loss"): learned metallic plus w_bin mean m (1 - m) with w_bin = 0.01, ramped in
+# over steps 300-600. Includes learned_metallic.yaml.
+material:
+  learn_metallic: true
+  init_metallic: 0.2
+loss:
+  metallic_binarization: 0.01

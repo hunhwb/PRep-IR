@@ -2,10 +2,10 @@
 # One scene end to end: prior prediction -> surface reconstruction -> scene preparation -> joint optimization ->
 # evaluation. Finished steps are skipped, so the script can be re-run after an interruption.
 #
-# usage: scripts/run_scene.sh DATASET SCENE PRIOR [--no-refine-albedo] [--name RUN_NAME] [--config FILE ...] [--set KEY=VALUE ...]
+# usage: scripts/run_scene.sh DATASET SCENE [PRIOR] [--no-refine-albedo] [--name RUN_NAME] [--config FILE ...] [--set KEY=VALUE ...]
 #   DATASET  s4r | tir | orb | dtc        (data/<DATASET>/<SCENE> from scripts/prepare_dataset.py)
-#   PRIOR    mvinverse | diffusion_renderer   (the paper's MVI-MVI and DR-DR configurations: the same model
-#            guides the surface reconstruction and provides the material prior)
+#   PRIOR    diffusion_renderer (default, the main paper) | mvinverse (supplement): the same model guides the
+#            surface reconstruction and provides the material prior (the paper's DR-DR and MVI-MVI configurations)
 #   --config / --set are passed to scripts/train.py; the run goes to outputs/<DATASET>/<SCENE>/<RUN_NAME>
 #   Albedo refinement (spatial sigma 12, prior-colour sigma 0.2) is enabled by default.
 #   Default RUN_NAME: PRIOR_refined, plus experiment file names and an overridden seed.
@@ -14,7 +14,9 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
-DATASET=$1; SCENE=$2; PRIOR=$3; shift 3
+DATASET=$1; SCENE=$2; shift 2
+PRIOR=diffusion_renderer
+if [ $# -gt 0 ] && [[ $1 != --* ]]; then PRIOR=$1; shift; fi
 NAME=""; CONFIGS=(); SETS=(); REFINE=(--refine-albedo); REFINE_ALBEDO=1; mode=""
 for arg in "$@"; do
   case $arg in

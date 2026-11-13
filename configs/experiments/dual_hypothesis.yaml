@@ -1,0 +1,4 @@
+# Supplementary variant (Sec. "Dielectric-Metallic Dual Hypothesis"): binary metallic selected per vertex from the
+# photometric residuals of a dielectric and a metal hypothesis on the same lattice. Settings in `dual` (default.yaml).
+material:
+  dual_hypothesis: true

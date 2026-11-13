@@ -1,0 +1,5 @@
+# Supplementary ablation (Sec. "Contribution of Geometry Optimization"): the initial reconstructed mesh is held fixed
+# while materials and illumination are optimized. With geometry.lr 0 the trainer skips vertex gradients and the
+# boundary derivative samples, which only contribute to them.
+geometry:
+  lr: 0.0
