@@ -74,7 +74,7 @@ scripts/run_scene.sh s4r hotdog --config configs/experiments/dual_hypothesis.yam
 | `dual_hypothesis.yaml` | Dielectric–metallic dual hypothesis: binary metallic selected from photometric residuals |
 | `no_material_ls.yaml` | Disable material Large Steps |
 | `fixed_geometry.yaml` | Hold the reconstructed mesh fixed |
-| `fast200.yaml` | 200 optimization steps |
+| `fast200.yaml` | Shortened 200-step schedule: about a minute of optimization per scene on one L40 |
 
 ### Dual hypothesis
 

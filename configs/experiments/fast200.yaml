@@ -1,5 +1,5 @@
-# Optimization speedup (Sec. 6.2, Tab. "Optimization in a minute"): 200 steps with one training view per step and
-# 256 primal samples per pixel. Albedo, geometry and envmap rates start at 10x their defaults and decay exponentially
+# A shortened schedule, not part of the paper's experiments: 200 steps with one training view per step and 256 primal
+# samples per pixel brings the optimization to about a minute per scene on one L40, at some cost in quality. Albedo, geometry and envmap rates start at 10x their defaults and decay exponentially
 # to 1x; roughness stays at 1x. The envmap switches from spherical Gaussians to the texture at step 100.
 steps: 200
 views_per_step: 1
