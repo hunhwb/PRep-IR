@@ -1,7 +1,7 @@
 """Joint optimization of one scene (the paper's method unless experiment configs or overrides say otherwise).
 
 usage: python scripts/train.py --scene work/s4r/hotdog/scene_diffusion_renderer_refined.pt --out outputs/s4r/hotdog/diffusion_renderer_refined
-         [--config configs/experiments/fast200.yaml ...] [--set seed=20261916 material.large_steps=0 ...]
+         [--config configs/experiments/dual_hypothesis.yaml ...] [--set seed=20261916 material.large_steps=0 ...]
          [--resume outputs/.../checkpoint_0500.pt]
 Writes <out>/run.json, train_log.jsonl, checkpoint.pt and result/ (result.npz, envmap.exr), the input of evaluate.py.
 """

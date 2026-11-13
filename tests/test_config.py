@@ -20,7 +20,7 @@ def test_every_experiment_file_loads():
 
 
 def test_overrides_and_typos():
-    c = load_config([EXPERIMENTS / 'fast200.yaml'], ['seed=7', 'render.spp=64'])
-    assert (c.steps, c.seed, c.render.spp, c.lr_decay.albedo) == (200, 7, 64, 10.0)
+    c = load_config([EXPERIMENTS / 'learned_metallic.yaml'], ['seed=7', 'render.spp=64'])
+    assert (c.material.learn_metallic, c.seed, c.render.spp) == (True, 7, 64)
     with pytest.raises(KeyError):
         load_config([], ['material.lr_albdo=1'])

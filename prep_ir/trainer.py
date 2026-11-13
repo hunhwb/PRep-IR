@@ -35,11 +35,6 @@ from .render import ENV_TO_WORLD, Renderer
 MATERIALS = ('albedo', 'roughness', 'metallic', 'albedo_m', 'roughness_m')   # *_m: metal hypothesis
 
 
-def decay_factor(start, step, steps):
-    """Exponential decay from `start` at step 1 to 1 at the last step."""
-    return start * (1 / start) ** ((step - 1) / max(1, steps - 1))
-
-
 def background_views(data_dir, views):
     """Frames whose background pixels observe the environment: <data>/background (same cameras, HDR) if present,
     else the training frames themselves when they are HDR, else None."""
@@ -149,17 +144,14 @@ class Trainer:
 
     def _set_learning_rates(self, step):
         c = self.config
-        d = lambda name: decay_factor(float(c.lr_decay[name]), step, c.steps)
         for g in self.material_optimizer.param_groups:
-            colour = g['name'] in ('albedo', 'albedo_m')
-            base = c.material.lr_albedo if colour else c.material.lr_roughness
-            g['lr'] = base * d('albedo' if colour else 'roughness')
-        self.geometry_optimizer.param_groups[0]['lr'] = c.geometry.lr * d('geometry')
+            g['lr'] = c.material.lr_albedo if g['name'] in ('albedo', 'albedo_m') else c.material.lr_roughness
+        self.geometry_optimizer.param_groups[0]['lr'] = c.geometry.lr
         e = c.envmap
         progress = min(1., max(0, step - e.warmup) / max(1, c.steps - e.warmup))
         cosine = e.min_lr_factor + (1 - e.min_lr_factor) * .5 * (1 + math.cos(math.pi * progress))
         for g in self.envmap_optimizer.param_groups:
-            g['lr'] = e.lr * min(1., step / max(1, e.warmup)) * cosine * d('envmap')
+            g['lr'] = e.lr * min(1., step / max(1, e.warmup)) * cosine
 
     # ----------------------------------------------------------------------------------------------- one step
     def train_step(self, step):

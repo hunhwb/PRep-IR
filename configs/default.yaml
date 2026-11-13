@@ -71,12 +71,4 @@ envmap:
   min_lr_factor: 0.02         # cosine decay to this fraction of lr
   grad_clip: 0.1              # gradient-norm clip
 
-# Exponential learning-rate schedule: the rate starts at `factor x` its base value and decays to the base value at
-# the last step (1 = constant). Used by the 200-step schedule (configs/experiments/fast200.yaml).
-lr_decay:
-  albedo: 1.0
-  roughness: 1.0              # metallic follows roughness
-  geometry: 1.0
-  envmap: 1.0
-
 checkpoint_steps: []          # extra steps to save a checkpoint at (the final state is always saved)
